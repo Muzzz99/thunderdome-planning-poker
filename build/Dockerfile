@@ -14,7 +14,11 @@ RUN npm run build
 ############################
 # STEP 2 build executable binary
 ############################
+
 FROM golang:1.23 as builderGo
+
+
+
 ARG BUILD_VERSION
 
 # 设置 Go 模块代理为国内源
