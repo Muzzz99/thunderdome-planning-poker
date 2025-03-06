@@ -15,7 +15,7 @@ RUN npm run build
 # STEP 2 build executable binary
 ############################
 
-FROM golang:1.23 as builderGo
+FROM golang:1.24 as builderGo
 
 
 

@@ -1,6 +1,6 @@
 module github.com/StevenWeathers/thunderdome-planning-poker
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/XSAM/otelsql v0.37.0
@@ -21,10 +21,8 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/o1egl/govatar v0.4.1
 	github.com/pquerna/otp v1.4.0
-
-	github.com/pressly/goose/v3 v3.23.1
-	github.com/redis/go-redis/v9 v9.5.1
-
+	github.com/pressly/goose/v3 v3.24.1
+	github.com/redis/go-redis/v9 v9.7.1
 	github.com/spf13/viper v1.19.0
 	github.com/swaggo/swag v1.16.4
 	github.com/uptrace/opentelemetry-go-extra/otelzap v0.3.2
@@ -53,8 +51,10 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.12 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elastic/go-sysinfo v1.11.2 // indirect
 	github.com/elastic/go-windows v1.0.1 // indirect
