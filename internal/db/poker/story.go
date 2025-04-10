@@ -129,6 +129,30 @@ func (d *Service) ActivateStoryVoting(pokerID string, storyID string) ([]*thunde
 	); err != nil {
 		d.Logger.Error("CALL thunderdome.poker_story_activate error", zap.Error(err),
 			zap.String("PokerID", pokerID), zap.String("StoryID", storyID))
+		return nil, err
+	}
+
+	// 清除故事缓存
+	if d.Redis != nil {
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after story activation",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID))
+	}
+
+	// 更新游戏的ActiveStoryID
+	if _, err := d.DB.Exec(
+		`UPDATE thunderdome.poker SET active_story_id = $1, voting_locked = false WHERE id = $2;`,
+		storyID, pokerID,
+	); err != nil {
+		d.Logger.Error("Failed to update active_story_id", zap.Error(err),
+			zap.String("PokerID", pokerID), zap.String("StoryID", storyID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -160,8 +184,17 @@ func (d *Service) SetVote(pokerID string, userID string, storyID string, voteVal
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after vote",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID),
+			zap.String("user_id", userID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -210,8 +243,17 @@ func (d *Service) RetractVote(pokerID string, userID string, storyID string) ([]
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after vote retraction",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID),
+			zap.String("user_id", userID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -229,8 +271,16 @@ func (d *Service) EndStoryVoting(pokerID string, storyID string) ([]*thunderdome
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after ending story voting",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -248,8 +298,16 @@ func (d *Service) SkipStory(pokerID string, storyID string) ([]*thunderdome.Stor
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after skipping story",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -285,8 +343,16 @@ func (d *Service) UpdateStory(pokerID string, storyID string, name string, story
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after updating story",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID))
 	}
 
 	stories := d.GetStories(pokerID, "")
@@ -304,8 +370,16 @@ func (d *Service) DeleteStory(pokerID string, storyID string) ([]*thunderdome.St
 
 	// 清除缓存
 	if d.Redis != nil {
-		cacheKey := fmt.Sprintf("game:%s:stories", pokerID)
-		d.Redis.Del(context.Background(), cacheKey)
+		storyCacheKey := fmt.Sprintf("game:%s:stories", pokerID)
+		d.Redis.Del(context.Background(), storyCacheKey)
+
+		// 清除游戏缓存
+		gameCacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), gameCacheKey)
+
+		d.Logger.Info("Cleared cache after deleting story",
+			zap.String("poker_id", pokerID),
+			zap.String("story_id", storyID))
 	}
 
 	stories := d.GetStories(pokerID, "")

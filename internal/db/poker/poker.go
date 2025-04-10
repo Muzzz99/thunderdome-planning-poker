@@ -15,8 +15,8 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/uptrace/opentelemetry-go-extra/otelzap"
 
-	"go.uber.org/zap"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // Service represents the poker database service
@@ -98,7 +98,9 @@ func (d *Service) CreateGame(ctx context.Context, facilitatorID string, name str
 	}
 
 	// Insert stories
-	for _, story := range stories {
+	for i, story := range stories {
+		// 使用循环索引作为位置值，确保唯一性
+		position := i
 		_, err = tx.Exec(
 			`INSERT INTO thunderdome.poker_story (
 				poker_id, name, type, reference_id, link, description,
@@ -106,7 +108,7 @@ func (d *Service) CreateGame(ctx context.Context, facilitatorID string, name str
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
 			b.ID, story.Name, story.Type, story.ReferenceID, story.Link,
 			story.Description, story.AcceptanceCriteria, story.Priority,
-			story.Position,
+			position,
 		)
 		if err != nil {
 			tx.Rollback()
@@ -119,16 +121,25 @@ func (d *Service) CreateGame(ctx context.Context, facilitatorID string, name str
 		return nil, fmt.Errorf("create poker commit error: %v", err)
 	}
 
+	// 获取完整的游戏数据，包括所有故事
+	completeGame, err := d.GetGameByID(b.ID, facilitatorID)
+	if err != nil {
+		d.Logger.Error("Failed to get complete game data for caching",
+			zap.Error(err),
+			zap.String("game_id", b.ID))
+		return b, nil
+	}
+
 	// 设置缓存
 	if d.Redis != nil {
 		d.Logger.Info("Attempting to set game cache", zap.String("game_id", b.ID))
-		if gameJSON, err := json.Marshal(b); err == nil {
+		if gameJSON, err := json.Marshal(completeGame); err == nil {
 			cacheKey := fmt.Sprintf("game:%s", b.ID)
 			d.Logger.Info("Setting game cache",
 				zap.String("game_id", b.ID),
 				zap.String("cache_key", cacheKey),
 				zap.Int("data_size", len(gameJSON)))
-			
+
 			if err := d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour).Err(); err != nil {
 				d.Logger.Error("Failed to set game cache",
 					zap.Error(err),
@@ -230,7 +241,9 @@ func (d *Service) TeamCreateGame(ctx context.Context, teamID string, facilitator
 	}
 
 	// Insert stories
-	for _, story := range stories {
+	for i, story := range stories {
+		// 使用循环索引作为位置值，确保唯一性
+		position := i
 		_, err = tx.Exec(
 			`INSERT INTO thunderdome.poker_story (
 				poker_id, name, type, reference_id, link, description,
@@ -238,7 +251,7 @@ func (d *Service) TeamCreateGame(ctx context.Context, teamID string, facilitator
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
 			b.ID, story.Name, story.Type, story.ReferenceID, story.Link,
 			story.Description, story.AcceptanceCriteria, story.Priority,
-			story.Position,
+			position,
 		)
 		if err != nil {
 			tx.Rollback()
@@ -251,9 +264,18 @@ func (d *Service) TeamCreateGame(ctx context.Context, teamID string, facilitator
 		return nil, fmt.Errorf("create poker commit error: %v", err)
 	}
 
+	// 获取完整的游戏数据，包括所有故事
+	completeGame, err := d.GetGameByID(b.ID, facilitatorID)
+	if err != nil {
+		d.Logger.Error("Failed to get complete game data for caching",
+			zap.Error(err),
+			zap.String("game_id", b.ID))
+		return b, nil
+	}
+
 	// 设置缓存
 	if d.Redis != nil {
-		if gameJSON, err := json.Marshal(b); err == nil {
+		if gameJSON, err := json.Marshal(completeGame); err == nil {
 			cacheKey := fmt.Sprintf("game:%s", b.ID)
 			if err := d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour).Err(); err != nil {
 				d.Logger.Error("Failed to set game cache", zap.Error(err), zap.String("game_id", b.ID))
@@ -316,7 +338,15 @@ func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker
 			var game thunderdome.Poker
 			if err := json.Unmarshal([]byte(cachedData), &game); err == nil {
 				d.Logger.Debug("Game cache hit", zap.String("game_id", pokerID))
-				return &game, nil
+				// 确保缓存中的游戏数据包含所有必要的信息
+				if len(game.Stories) > 0 && len(game.Users) > 0 {
+					return &game, nil
+				} else {
+					d.Logger.Warn("Incomplete game data in cache, fetching from database",
+						zap.String("game_id", pokerID),
+						zap.Int("stories_count", len(game.Stories)),
+						zap.Int("users_count", len(game.Users)))
+				}
 			}
 		}
 	}
@@ -387,13 +417,6 @@ func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker
 		return nil, fmt.Errorf("get poker query error: %v", e)
 	}
 
-	// 设置缓存
-	if d.Redis != nil {
-		if gameJSON, err := json.Marshal(b); err == nil {
-			d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour)
-		}
-	}
-
 	b.PointValuesAllowed = vArray.Elements
 
 	_ = json.Unmarshal([]byte(facilitators), &b.Facilitators)
@@ -427,6 +450,13 @@ func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker
 
 	b.Users = d.GetUsers(pokerID)
 	b.Stories = d.GetStories(pokerID, userID)
+
+	// 设置缓存
+	if d.Redis != nil {
+		if gameJSON, err := json.Marshal(b); err == nil {
+			d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour)
+		}
+	}
 
 	return b, nil
 }
