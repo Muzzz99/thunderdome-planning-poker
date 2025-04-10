@@ -97,6 +97,16 @@ func (d *Service) CreateGame(ctx context.Context, facilitatorID string, name str
 		return nil, fmt.Errorf("create poker facilitator error: %v", err)
 	}
 
+	// Insert user as active participant
+	_, err = tx.Exec(
+		`INSERT INTO thunderdome.poker_user (poker_id, user_id, active, abandoned) VALUES ($1, $2, true, false);`,
+		b.ID, facilitatorID,
+	)
+	if err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker user error: %v", err)
+	}
+
 	// Insert stories
 	for i, story := range stories {
 		// 使用循环索引作为位置值，确保唯一性
@@ -238,6 +248,16 @@ func (d *Service) TeamCreateGame(ctx context.Context, teamID string, facilitator
 	if err != nil {
 		tx.Rollback()
 		return nil, fmt.Errorf("create poker facilitator error: %v", err)
+	}
+
+	// Insert user as active participant
+	_, err = tx.Exec(
+		`INSERT INTO thunderdome.poker_user (poker_id, user_id, active, abandoned) VALUES ($1, $2, true, false);`,
+		b.ID, facilitatorID,
+	)
+	if err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker user error: %v", err)
 	}
 
 	// Insert stories

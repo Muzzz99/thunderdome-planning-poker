@@ -97,7 +97,7 @@ func main() {
 		zap.Int("db", redisConfig.DB))
 
 	if err := redis.InitRedis(redisConfig); err != nil {
-		logger.Error("Failed to initialize Redis", 
+		logger.Error("Failed to initialize Redis",
 			zap.Error(err),
 			zap.String("host", redisConfig.Host),
 			zap.Int("port", redisConfig.Port))
@@ -108,7 +108,7 @@ func main() {
 			logger.Error("Redis client is nil after initialization")
 		} else {
 			if err := client.Ping(context.Background()).Err(); err != nil {
-				logger.Error("Redis ping failed", 
+				logger.Error("Redis ping failed",
 					zap.Error(err),
 					zap.String("host", redisConfig.Host),
 					zap.Int("port", redisConfig.Port))
@@ -157,7 +157,7 @@ func main() {
 	battleService := &poker.Service{
 		DB: d.DB, Logger: logger, AESHashKey: d.Config.AESHashkey,
 		HTMLSanitizerPolicy: d.HTMLSanitizerPolicy,
-		Redis: redis.GetClient(),
+		Redis:               redis.GetClient(),
 	}
 	checkinService := &team.CheckinService{DB: d.DB, Logger: logger, HTMLSanitizerPolicy: d.HTMLSanitizerPolicy}
 	retroService := &retro.Service{DB: d.DB, Logger: logger, AESHashKey: d.Config.AESHashkey}

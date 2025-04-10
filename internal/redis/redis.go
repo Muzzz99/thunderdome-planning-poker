@@ -30,7 +30,7 @@ func InitRedis(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %v", err)
 	}
-	
+
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	logger.Info("Creating Redis client",
 		zap.String("addr", addr),
@@ -175,4 +175,4 @@ func GetOrSet(ctx context.Context, key string, value interface{}, expiration tim
 	}
 
 	return Get(ctx, key, value)
-} 
+}
