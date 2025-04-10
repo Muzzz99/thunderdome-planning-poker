@@ -466,6 +466,9 @@ func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thund
 	var count int
 	var games = make([]*thunderdome.Poker, 0)
 
+	// 注意：这里不使用Redis缓存，因为用户的游戏列表需要实时从数据库获取
+	// 特别是在测试环境中，这确保了测试能够正确验证API功能
+
 	e := d.DB.QueryRow(`
 		WITH user_teams AS (
 			SELECT t.id FROM thunderdome.team_user tu
