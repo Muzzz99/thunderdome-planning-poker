@@ -482,8 +482,14 @@ func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thund
 			SELECT u.poker_id AS id FROM thunderdome.poker_user u
 			WHERE u.user_id = $1 AND u.abandoned = false
 		),
+		facilitator_games AS (
+			SELECT f.poker_id AS id FROM thunderdome.poker_facilitator f
+			WHERE f.user_id = $1
+		),
 		games AS (
-			SELECT id from user_games UNION SELECT id FROM team_games
+			SELECT id from user_games
+			UNION SELECT id FROM team_games
+			UNION SELECT id FROM facilitator_games
 		)
 		SELECT COUNT(*) FROM games;
 	`, userID).Scan(
@@ -506,14 +512,20 @@ func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thund
 			SELECT u.poker_id AS id FROM thunderdome.poker_user u
 			WHERE u.user_id = $1 AND u.abandoned = false
 		),
+		facilitator_games AS (
+			SELECT f.poker_id AS id FROM thunderdome.poker_facilitator f
+			WHERE f.user_id = $1
+		),
 		games AS (
-			SELECT id from user_games UNION SELECT id FROM team_games
+			SELECT id from user_games
+			UNION SELECT id FROM team_games
+			UNION SELECT id FROM facilitator_games
 		),
 		stories AS (
-			SELECT poker_id, points FROM thunderdome.poker_story WHERE poker_id IN (SELECT poker_id FROM games)
+			SELECT poker_id, points FROM thunderdome.poker_story WHERE poker_id IN (SELECT id FROM games)
 		),
 		facilitators AS (
-			SELECT poker_id, user_id FROM thunderdome.poker_facilitator WHERE poker_id IN (SELECT poker_id FROM games)
+			SELECT poker_id, user_id FROM thunderdome.poker_facilitator WHERE poker_id IN (SELECT id FROM games)
 		)
 		SELECT p.id, p.name, p.voting_locked, COALESCE(p.active_story_id::text, ''), p.point_values_allowed, p.auto_finish_voting,
 		  p.point_average_rounding, p.created_date, p.updated_date,
