@@ -29,6 +29,9 @@ services:
       DB_PASS: odinson
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_POOL_SIZE: 20
+      REDIS_MIN_IDLE_CONNS: 10
+      REDIS_MAX_RETRIES: 3
     volumes:
       - ./etc:/etc/thunderdome
   db:
@@ -59,6 +62,13 @@ services:
       - redis_data:/data
     networks:
       - asgard
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
   mail:
     image: maildev/maildev:2.1.0
     restart: always

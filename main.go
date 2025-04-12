@@ -84,19 +84,50 @@ func main() {
 		logger.Info("Using default Redis host", zap.String("host", redisHost))
 	}
 
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	redisDB, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+	if err != nil || redisDB < 0 {
+		redisDB = 0
+		logger.Info("Using default Redis DB", zap.Int("db", redisDB))
+	}
+
+	redisPoolSize, err := strconv.Atoi(os.Getenv("REDIS_POOL_SIZE"))
+	if err != nil || redisPoolSize <= 0 {
+		redisPoolSize = 10
+		logger.Info("Using default Redis pool size", zap.Int("pool_size", redisPoolSize))
+	}
+
+	redisMinIdleConns, err := strconv.Atoi(os.Getenv("REDIS_MIN_IDLE_CONNS"))
+	if err != nil || redisMinIdleConns <= 0 {
+		redisMinIdleConns = 5
+		logger.Info("Using default Redis min idle connections", zap.Int("min_idle_conns", redisMinIdleConns))
+	}
+
+	redisMaxRetries, err := strconv.Atoi(os.Getenv("REDIS_MAX_RETRIES"))
+	if err != nil || redisMaxRetries <= 0 {
+		redisMaxRetries = 3
+		logger.Info("Using default Redis max retries", zap.Int("max_retries", redisMaxRetries))
+	}
+
 	redisConfig := &redis.Config{
-		Host:     redisHost,
-		Port:     redisPort,
-		Password: "", // 如果需要密码，从环境变量获取
-		DB:       0,
+		Host:         redisHost,
+		Port:         redisPort,
+		Password:     redisPassword,
+		DB:           redisDB,
+		PoolSize:     redisPoolSize,
+		MinIdleConns: redisMinIdleConns,
+		MaxRetries:   redisMaxRetries,
 	}
 
 	logger.Info("Initializing Redis",
 		zap.String("host", redisConfig.Host),
 		zap.Int("port", redisConfig.Port),
-		zap.Int("db", redisConfig.DB))
+		zap.Int("db", redisConfig.DB),
+		zap.Int("pool_size", redisConfig.PoolSize),
+		zap.Int("min_idle_conns", redisConfig.MinIdleConns),
+		zap.Int("max_retries", redisConfig.MaxRetries))
 
-	if err := redis.InitRedis(redisConfig); err != nil {
+	if err := redis.InitRedis(redisConfig, logger); err != nil {
 		logger.Error("Failed to initialize Redis",
 			zap.Error(err),
 			zap.String("host", redisConfig.Host),
