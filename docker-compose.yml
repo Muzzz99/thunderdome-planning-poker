@@ -9,8 +9,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     links:
       - db
       - redis
@@ -42,6 +44,12 @@ services:
       - thunderdome_data:/var/lib/postgresql/data
     networks:
       - asgard
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thor -d thunderdome"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
   redis:
     image: redis:7-alpine
     restart: always
