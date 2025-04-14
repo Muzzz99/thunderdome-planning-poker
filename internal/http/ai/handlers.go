@@ -229,6 +229,8 @@ func parseAIResponse(content string, availablePoints []string) (string, string) 
 	}
 
 	// 如果无法解析为JSON，尝试提取关键信息
+	// 查找点数
+
 	// 首先检查常见的点数模式
 	for _, point := range availablePoints {
 		// 常见的模式包括 "点数: 5", "suggestedPoint":"5", "建议点数: 5" 等
