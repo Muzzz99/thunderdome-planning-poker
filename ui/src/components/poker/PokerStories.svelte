@@ -92,18 +92,20 @@
     showAddPlan = !showAddPlan;
   };
 
-  const togglePlanView = (planId, showAi = false) => () => {
-    if (planId) {
-      selectedPlan = plans.find(p => p.id === planId);
-      showAiSuggestion = showAi;
-      eventTag('plan_show_view', 'battle', ``);
-    } else {
-      selectedPlan = { ...defaultPlan };
-      showAiSuggestion = false;
-      eventTag('plan_unshow_view', 'battle', ``);
-    }
-    showViewPlan = !showViewPlan;
-  };
+  const togglePlanView =
+    (planId, showAi = false) =>
+    () => {
+      if (planId) {
+        selectedPlan = plans.find(p => p.id === planId);
+        showAiSuggestion = showAi;
+        eventTag('plan_show_view', 'battle', ``);
+      } else {
+        selectedPlan = { ...defaultPlan };
+        showAiSuggestion = false;
+        eventTag('plan_unshow_view', 'battle', ``);
+      }
+      showViewPlan = !showViewPlan;
+    };
 
   const handlePlanAdd = newPlan => {
     sendSocketEvent('add_plan', JSON.stringify(newPlan));
@@ -296,7 +298,9 @@
               {plan.points}
             </div>
           {/if}
-          <div class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center">
+          <div
+            class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center"
+          >
             <button
               class="rounded text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 bg-white dark:bg-transparent p-1 mx-1"
               on:click="{togglePlanView(plan.id)}"
@@ -305,13 +309,13 @@
               <Eye class="w-5 h-5" />
             </button>
             {#if !plan.active && !plan.points}
-            <button
-              class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
-              on:click="{togglePlanView(plan.id, true)}"
-              title="查看并使用AI建议"
-            >
-              <Brain class="w-5 h-5" />
-            </button>
+              <button
+                class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
+                on:click="{togglePlanView(plan.id, true)}"
+                title="查看并使用AI建议"
+              >
+                <Brain class="w-5 h-5" />
+              </button>
             {/if}
           </div>
           {#if isLeader}
@@ -384,7 +388,9 @@
                 {plan.points}
               </div>
             {/if}
-            <div class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center">
+            <div
+              class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center"
+            >
               <button
                 class="rounded text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 bg-white dark:bg-transparent p-1 mx-1"
                 on:click="{togglePlanView(plan.id)}"
@@ -393,13 +399,13 @@
                 <Eye class="w-5 h-5" />
               </button>
               {#if !plan.active && !plan.points}
-              <button
-                class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
-                on:click="{togglePlanView(plan.id, true)}"
-                title="查看并使用AI建议"
-              >
-                <Brain class="w-5 h-5" />
-              </button>
+                <button
+                  class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
+                  on:click="{togglePlanView(plan.id, true)}"
+                  title="查看并使用AI建议"
+                >
+                  <Brain class="w-5 h-5" />
+                </button>
               {/if}
             </div>
             {#if isLeader}

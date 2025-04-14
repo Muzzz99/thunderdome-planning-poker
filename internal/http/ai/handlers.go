@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -125,7 +125,7 @@ func (s *Service) SuggestPoints(w http.ResponseWriter, r *http.Request) {
 	defer aiResp.Body.Close()
 
 	// 读取响应体
-	aiRespBody, err := ioutil.ReadAll(aiResp.Body)
+	aiRespBody, err := io.ReadAll(aiResp.Body)
 	if err != nil {
 		http.Error(w, "Error reading AI API response", http.StatusInternalServerError)
 		return

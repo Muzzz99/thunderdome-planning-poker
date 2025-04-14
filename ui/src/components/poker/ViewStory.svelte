@@ -113,7 +113,7 @@
       {@html acceptanceCriteria}
     </div>
   </div>
-  
+
   {#if showAiSuggestion}
     <AiPointSuggestion
       description="{description}"
