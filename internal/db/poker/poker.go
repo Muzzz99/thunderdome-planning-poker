@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/uptrace/opentelemetry-go-extra/otelzap"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +25,7 @@ type Service struct {
 	Logger              *otelzap.Logger
 	AESHashKey          string
 	HTMLSanitizerPolicy *bluemonday.Policy
+	Redis               *redis.Client
 }
 
 // CreateGame creates a new story pointing session
@@ -67,79 +70,102 @@ func (d *Service) CreateGame(ctx context.Context, facilitatorID string, name str
 		d.Logger.Error("create poker error", zap.Error(err))
 	}
 
-	defer tx.Rollback()
-
 	// Insert into poker table
-	err = tx.QueryRowContext(ctx, `
-            INSERT INTO thunderdome.poker
-            (owner_id, name, estimation_scale_id, point_values_allowed, auto_finish_voting, point_average_rounding,
-             hide_voter_identity, join_code, leader_code)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, created_date, updated_date
-        `, facilitatorID, name, estimationScaleID, pointValuesAllowed, autoFinishVoting,
+	err = tx.QueryRow(
+		`INSERT INTO thunderdome.poker (
+			name, voting_locked, point_values_allowed, auto_finish_voting,
+			point_average_rounding, hide_voter_identity, join_code, leader_code,
+			estimation_scale_id, created_date, updated_date
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		RETURNING id`,
+		name, true, pointValuesAllowed, autoFinishVoting,
 		pointAverageRounding, hideVoterIdentity, encryptedJoinCode, encryptedLeaderCode,
-	).Scan(&b.ID, &b.CreatedDate, &b.UpdatedDate)
+		estimationScaleID,
+	).Scan(&b.ID)
 	if err != nil {
-		d.Logger.Error("create poker error", zap.Error(err))
-		return nil, fmt.Errorf("failed to insert into poker table: %v", err)
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker query error: %v", err)
 	}
 
-	// Insert into poker_facilitator table
-	_, err = tx.Exec(`
-            INSERT INTO thunderdome.poker_facilitator (poker_id, user_id)
-            VALUES ($1, $2)
-        `, &b.ID, facilitatorID)
+	// Insert facilitator
+	_, err = tx.Exec(
+		`INSERT INTO thunderdome.poker_facilitator (poker_id, user_id) VALUES ($1, $2);`,
+		b.ID, facilitatorID,
+	)
 	if err != nil {
-		d.Logger.Error("create poker error", zap.Error(err))
-		return nil, fmt.Errorf("failed to insert into poker_facilitator table: %v", err)
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker facilitator error: %v", err)
 	}
 
-	// Insert into poker_user table
-	_, err = tx.Exec(`
-            INSERT INTO thunderdome.poker_user (poker_id, user_id)
-            VALUES ($1, $2)
-        `, &b.ID, facilitatorID)
-	if err != nil {
-		d.Logger.Error("create poker error", zap.Error(err))
-		return nil, fmt.Errorf("failed to insert into poker_user table: %v", err)
-	}
-
-	if commitErr := tx.Commit(); commitErr != nil {
-		d.Logger.Error("update drivers: unable to commit", zap.Error(commitErr))
-		return nil, fmt.Errorf("failed to create poker game: %v", commitErr)
-	}
-
-	for _, story := range stories {
-		story.Votes = make([]*thunderdome.Vote, 0)
-		priority := story.Priority
-		// default priority should be 99 for sort order purposes
-		if priority == 0 {
-			priority = 99
-		}
-
-		e := d.DB.QueryRowContext(ctx,
-			`INSERT INTO thunderdome.poker_story (poker_id, name, type, reference_id, link, description, acceptance_criteria, priority, position)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, (
-					  coalesce(
-						(select max(position) from thunderdome.poker_story where poker_id = $1),
-						-1
-					  ) + 1
-					)) RETURNING id`,
-			b.ID,
-			story.Name,
-			story.Type,
-			story.ReferenceID,
-			story.Link,
-			story.Description,
-			story.AcceptanceCriteria,
-			priority,
-		).Scan(&story.ID)
-		if e != nil {
-			d.Logger.Error("insert stories error", zap.Error(e))
+	// Insert stories
+	for i, story := range stories {
+		// 使用循环索引作为位置值，确保唯一性
+		position := i
+		_, err = tx.Exec(
+			`INSERT INTO thunderdome.poker_story (
+				poker_id, name, type, reference_id, link, description,
+				acceptance_criteria, priority, position
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+			b.ID, story.Name, story.Type, story.ReferenceID, story.Link,
+			story.Description, story.AcceptanceCriteria, story.Priority,
+			position,
+		)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("create poker story error: %v", err)
 		}
 	}
 
-	b.Stories = stories
+	err = tx.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("create poker commit error: %v", err)
+	}
+
+	// 获取完整的游戏数据，包括所有故事
+	completeGame, err := d.GetGameByID(b.ID, facilitatorID)
+	if err != nil {
+		d.Logger.Error("Failed to get complete game data for caching",
+			zap.Error(err),
+			zap.String("game_id", b.ID))
+		return b, nil
+	}
+
+	// 设置缓存
+	if d.Redis != nil {
+		d.Logger.Info("Attempting to set game cache", zap.String("game_id", b.ID))
+		if gameJSON, err := json.Marshal(completeGame); err == nil {
+			cacheKey := fmt.Sprintf("game:%s", b.ID)
+			d.Logger.Info("Setting game cache",
+				zap.String("game_id", b.ID),
+				zap.String("cache_key", cacheKey),
+				zap.Int("data_size", len(gameJSON)))
+
+			if err := d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour).Err(); err != nil {
+				d.Logger.Error("Failed to set game cache",
+					zap.Error(err),
+					zap.String("game_id", b.ID),
+					zap.String("cache_key", cacheKey))
+			} else {
+				// 验证缓存是否设置成功
+				exists, err := d.Redis.Exists(context.Background(), cacheKey).Result()
+				if err != nil {
+					d.Logger.Error("Failed to verify cache existence",
+						zap.Error(err),
+						zap.String("game_id", b.ID))
+				} else {
+					d.Logger.Info("Game cache verification",
+						zap.String("game_id", b.ID),
+						zap.Int64("exists", exists))
+				}
+			}
+		} else {
+			d.Logger.Error("Failed to marshal game data",
+				zap.Error(err),
+				zap.String("game_id", b.ID))
+		}
+	} else {
+		d.Logger.Warn("Redis client is nil, skipping cache", zap.String("game_id", b.ID))
+	}
 
 	return b, nil
 }
@@ -188,87 +214,81 @@ func (d *Service) TeamCreateGame(ctx context.Context, teamID string, facilitator
 	}
 
 	// Insert into poker table
-	err = tx.QueryRowContext(ctx, `
-            INSERT INTO thunderdome.poker
-            (owner_id, name, estimation_scale_id, point_values_allowed, auto_finish_voting, point_average_rounding,
-             hide_voter_identity, join_code, leader_code, team_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id, created_date, updated_date
-        `, facilitatorID, name, estimationScaleID, pointValuesAllowed, autoFinishVoting,
-		pointAverageRounding, hideVoterIdentity, encryptedJoinCode, encryptedLeaderCode, teamID,
-	).Scan(&b.ID, &b.CreatedDate, &b.UpdatedDate)
+	err = tx.QueryRow(
+		`INSERT INTO thunderdome.poker (
+			name, voting_locked, point_values_allowed, auto_finish_voting,
+			point_average_rounding, hide_voter_identity, join_code, leader_code,
+			estimation_scale_id, team_id, created_date, updated_date
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+		RETURNING id`,
+		name, true, pointValuesAllowed, autoFinishVoting,
+		pointAverageRounding, hideVoterIdentity, encryptedJoinCode, encryptedLeaderCode,
+		estimationScaleID, teamID,
+	).Scan(&b.ID)
 	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			d.Logger.Error("update drivers: unable to rollback", zap.Error(rollbackErr))
-		}
-		return nil, fmt.Errorf("failed to insert into poker table: %v", err)
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker query error: %v", err)
 	}
 
-	// Insert into poker_facilitator table
-	_, err = tx.Exec(`
-            INSERT INTO thunderdome.poker_facilitator (poker_id, user_id)
-            VALUES ($1, $2)
-        `, &b.ID, facilitatorID)
+	// Insert facilitator
+	_, err = tx.Exec(
+		`INSERT INTO thunderdome.poker_facilitator (poker_id, user_id) VALUES ($1, $2);`,
+		b.ID, facilitatorID,
+	)
 	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			d.Logger.Error("update drivers: unable to rollback", zap.Error(rollbackErr))
-		}
-		return nil, fmt.Errorf("failed to insert into poker_facilitator table: %v", err)
+		tx.Rollback()
+		return nil, fmt.Errorf("create poker facilitator error: %v", err)
 	}
 
-	// Insert into poker_user table
-	_, err = tx.Exec(`
-            INSERT INTO thunderdome.poker_user (poker_id, user_id)
-            VALUES ($1, $2)
-        `, &b.ID, facilitatorID)
+	// Insert stories
+	for i, story := range stories {
+		// 使用循环索引作为位置值，确保唯一性
+		position := i
+		_, err = tx.Exec(
+			`INSERT INTO thunderdome.poker_story (
+				poker_id, name, type, reference_id, link, description,
+				acceptance_criteria, priority, position
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+			b.ID, story.Name, story.Type, story.ReferenceID, story.Link,
+			story.Description, story.AcceptanceCriteria, story.Priority,
+			position,
+		)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("create poker story error: %v", err)
+		}
+	}
+
+	err = tx.Commit()
 	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			d.Logger.Error("update drivers: unable to rollback", zap.Error(rollbackErr))
-		}
-		return nil, fmt.Errorf("failed to insert into poker_user table: %v", err)
+		return nil, fmt.Errorf("create poker commit error: %v", err)
 	}
 
-	if commitErr := tx.Commit(); commitErr != nil {
-		d.Logger.Error("update drivers: unable to commit", zap.Error(commitErr))
-		return nil, fmt.Errorf("failed to create poker game: %v", commitErr)
+	// 获取完整的游戏数据，包括所有故事
+	completeGame, err := d.GetGameByID(b.ID, facilitatorID)
+	if err != nil {
+		d.Logger.Error("Failed to get complete game data for caching",
+			zap.Error(err),
+			zap.String("game_id", b.ID))
+		return b, nil
 	}
 
-	for _, story := range stories {
-		story.Votes = make([]*thunderdome.Vote, 0)
-		priority := story.Priority
-		// default priority should be 99 for sort order purposes
-		if priority == 0 {
-			priority = 99
-		}
-
-		e := d.DB.QueryRowContext(ctx,
-			`INSERT INTO thunderdome.poker_story (poker_id, name, type, reference_id, link, description, acceptance_criteria, priority, position)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, (
-					  coalesce(
-						(select max(position) from thunderdome.poker_story where poker_id = $1),
-						-1
-					  ) + 1
-					)) RETURNING id`,
-			b.ID,
-			story.Name,
-			story.Type,
-			story.ReferenceID,
-			story.Link,
-			story.Description,
-			story.AcceptanceCriteria,
-			priority,
-		).Scan(&story.ID)
-		if e != nil {
-			d.Logger.Error("insert stories error", zap.Error(e))
+	// 设置缓存
+	if d.Redis != nil {
+		if gameJSON, err := json.Marshal(completeGame); err == nil {
+			cacheKey := fmt.Sprintf("game:%s", b.ID)
+			if err := d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour).Err(); err != nil {
+				d.Logger.Error("Failed to set game cache", zap.Error(err), zap.String("game_id", b.ID))
+			} else {
+				d.Logger.Info("Game cache set successfully", zap.String("game_id", b.ID))
+			}
 		}
 	}
-
-	b.Stories = stories
 
 	return b, nil
 }
 
-// UpdateGame updates the game by ID
+// UpdateGame updates a game by ID
 func (d *Service) UpdateGame(pokerID string, name string, pointValuesAllowed []string, autoFinishVoting bool, pointAverageRounding string, hideVoterIdentity bool, joinCode string, facilitatorCode string, teamID string) error {
 	var encryptedJoinCode string
 	var encryptedLeaderCode string
@@ -300,11 +320,37 @@ func (d *Service) UpdateGame(pokerID string, name string, pointValuesAllowed []s
 		return fmt.Errorf("update poker query error: %v", err)
 	}
 
+	// 清除缓存
+	if d.Redis != nil {
+		cacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), cacheKey)
+	}
+
 	return nil
 }
 
 // GetGameByID gets a game by ID
 func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker, error) {
+	// 尝试从Redis缓存获取
+	cacheKey := fmt.Sprintf("game:%s", pokerID)
+	if d.Redis != nil {
+		if cachedData, err := d.Redis.Get(context.Background(), cacheKey).Result(); err == nil {
+			var game thunderdome.Poker
+			if err := json.Unmarshal([]byte(cachedData), &game); err == nil {
+				d.Logger.Debug("Game cache hit", zap.String("game_id", pokerID))
+				// 确保缓存中的游戏数据包含所有必要的信息
+				if len(game.Stories) > 0 && len(game.Users) > 0 {
+					return &game, nil
+				} else {
+					d.Logger.Warn("Incomplete game data in cache, fetching from database",
+						zap.String("game_id", pokerID),
+						zap.Int("stories_count", len(game.Stories)),
+						zap.Int("users_count", len(game.Users)))
+				}
+			}
+		}
+	}
+
 	var b = &thunderdome.Poker{
 		ID:           pokerID,
 		Users:        make([]*thunderdome.PokerUser, 0),
@@ -405,6 +451,13 @@ func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker
 	b.Users = d.GetUsers(pokerID)
 	b.Stories = d.GetStories(pokerID, userID)
 
+	// 设置缓存
+	if d.Redis != nil {
+		if gameJSON, err := json.Marshal(b); err == nil {
+			d.Redis.Set(context.Background(), cacheKey, gameJSON, 24*time.Hour)
+		}
+	}
+
 	return b, nil
 }
 
@@ -412,6 +465,9 @@ func (d *Service) GetGameByID(pokerID string, userID string) (*thunderdome.Poker
 func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thunderdome.Poker, int, error) {
 	var count int
 	var games = make([]*thunderdome.Poker, 0)
+
+	// 注意：这里不使用Redis缓存，因为用户的游戏列表需要实时从数据库获取
+	// 特别是在测试环境中，这确保了测试能够正确验证API功能
 
 	e := d.DB.QueryRow(`
 		WITH user_teams AS (
@@ -426,8 +482,14 @@ func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thund
 			SELECT u.poker_id AS id FROM thunderdome.poker_user u
 			WHERE u.user_id = $1 AND u.abandoned = false
 		),
+		facilitator_games AS (
+			SELECT f.poker_id AS id FROM thunderdome.poker_facilitator f
+			WHERE f.user_id = $1
+		),
 		games AS (
-			SELECT id from user_games UNION SELECT id FROM team_games
+			SELECT id from user_games
+			UNION SELECT id FROM team_games
+			UNION SELECT id FROM facilitator_games
 		)
 		SELECT COUNT(*) FROM games;
 	`, userID).Scan(
@@ -450,14 +512,20 @@ func (d *Service) GetGamesByUser(userID string, limit int, offset int) ([]*thund
 			SELECT u.poker_id AS id FROM thunderdome.poker_user u
 			WHERE u.user_id = $1 AND u.abandoned = false
 		),
+		facilitator_games AS (
+			SELECT f.poker_id AS id FROM thunderdome.poker_facilitator f
+			WHERE f.user_id = $1
+		),
 		games AS (
-			SELECT id from user_games UNION SELECT id FROM team_games
+			SELECT id from user_games
+			UNION SELECT id FROM team_games
+			UNION SELECT id FROM facilitator_games
 		),
 		stories AS (
-			SELECT poker_id, points FROM thunderdome.poker_story WHERE poker_id IN (SELECT poker_id FROM games)
+			SELECT poker_id, points FROM thunderdome.poker_story WHERE poker_id IN (SELECT id FROM games)
 		),
 		facilitators AS (
-			SELECT poker_id, user_id FROM thunderdome.poker_facilitator WHERE poker_id IN (SELECT poker_id FROM games)
+			SELECT poker_id, user_id FROM thunderdome.poker_facilitator WHERE poker_id IN (SELECT id FROM games)
 		)
 		SELECT p.id, p.name, p.voting_locked, COALESCE(p.active_story_id::text, ''), p.point_values_allowed, p.auto_finish_voting,
 		  p.point_average_rounding, p.created_date, p.updated_date,
@@ -547,6 +615,12 @@ func (d *Service) DeleteGame(pokerID string) error {
 	if _, err := d.DB.Exec(
 		`DELETE FROM thunderdome.poker WHERE id = $1;`, pokerID); err != nil {
 		return fmt.Errorf("poker delete query error: %v", err)
+	}
+
+	// 清除缓存
+	if d.Redis != nil {
+		cacheKey := fmt.Sprintf("game:%s", pokerID)
+		d.Redis.Del(context.Background(), cacheKey)
 	}
 
 	return nil

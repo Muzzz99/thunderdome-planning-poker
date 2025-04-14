@@ -4,8 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"os"
+	"strconv"
 
 	jiraData "github.com/StevenWeathers/thunderdome-planning-poker/internal/db/jira"
+	"github.com/StevenWeathers/thunderdome-planning-poker/internal/redis"
 
 	"github.com/StevenWeathers/thunderdome-planning-poker/internal/webhook/subscription"
 
@@ -66,6 +68,89 @@ func main() {
 
 	c := config.InitConfig(logger)
 
+	// 初始化 Redis
+	redisPort, err := strconv.Atoi(os.Getenv("REDIS_PORT"))
+	if err != nil {
+		logger.Error("Failed to parse REDIS_PORT", zap.Error(err))
+	}
+	if redisPort == 0 {
+		redisPort = 6379
+		logger.Info("Using default Redis port", zap.Int("port", redisPort))
+	}
+
+	redisHost := os.Getenv("REDIS_HOST")
+	if redisHost == "" {
+		redisHost = "localhost"
+		logger.Info("Using default Redis host", zap.String("host", redisHost))
+	}
+
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	redisDB, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+	if err != nil || redisDB < 0 {
+		redisDB = 0
+		logger.Info("Using default Redis DB", zap.Int("db", redisDB))
+	}
+
+	redisPoolSize, err := strconv.Atoi(os.Getenv("REDIS_POOL_SIZE"))
+	if err != nil || redisPoolSize <= 0 {
+		redisPoolSize = 10
+		logger.Info("Using default Redis pool size", zap.Int("pool_size", redisPoolSize))
+	}
+
+	redisMinIdleConns, err := strconv.Atoi(os.Getenv("REDIS_MIN_IDLE_CONNS"))
+	if err != nil || redisMinIdleConns <= 0 {
+		redisMinIdleConns = 5
+		logger.Info("Using default Redis min idle connections", zap.Int("min_idle_conns", redisMinIdleConns))
+	}
+
+	redisMaxRetries, err := strconv.Atoi(os.Getenv("REDIS_MAX_RETRIES"))
+	if err != nil || redisMaxRetries <= 0 {
+		redisMaxRetries = 3
+		logger.Info("Using default Redis max retries", zap.Int("max_retries", redisMaxRetries))
+	}
+
+	redisConfig := &redis.Config{
+		Host:         redisHost,
+		Port:         redisPort,
+		Password:     redisPassword,
+		DB:           redisDB,
+		PoolSize:     redisPoolSize,
+		MinIdleConns: redisMinIdleConns,
+		MaxRetries:   redisMaxRetries,
+	}
+
+	logger.Info("Initializing Redis",
+		zap.String("host", redisConfig.Host),
+		zap.Int("port", redisConfig.Port),
+		zap.Int("db", redisConfig.DB),
+		zap.Int("pool_size", redisConfig.PoolSize),
+		zap.Int("min_idle_conns", redisConfig.MinIdleConns),
+		zap.Int("max_retries", redisConfig.MaxRetries))
+
+	if err := redis.InitRedis(redisConfig, logger); err != nil {
+		logger.Error("Failed to initialize Redis",
+			zap.Error(err),
+			zap.String("host", redisConfig.Host),
+			zap.Int("port", redisConfig.Port))
+	} else {
+		// 测试Redis连接
+		client := redis.GetClient()
+		if client == nil {
+			logger.Error("Redis client is nil after initialization")
+		} else {
+			if err := client.Ping(context.Background()).Err(); err != nil {
+				logger.Error("Redis ping failed",
+					zap.Error(err),
+					zap.String("host", redisConfig.Host),
+					zap.Int("port", redisConfig.Port))
+			} else {
+				logger.Info("Redis initialized and connected successfully",
+					zap.String("host", redisConfig.Host),
+					zap.Int("port", redisConfig.Port))
+			}
+		}
+	}
+
 	if c.Otel.Enabled {
 		cleanup := initTracer(
 			logger,
@@ -103,6 +188,7 @@ func main() {
 	battleService := &poker.Service{
 		DB: d.DB, Logger: logger, AESHashKey: d.Config.AESHashkey,
 		HTMLSanitizerPolicy: d.HTMLSanitizerPolicy,
+		Redis:               redis.GetClient(),
 	}
 	checkinService := &team.CheckinService{DB: d.DB, Logger: logger, HTMLSanitizerPolicy: d.HTMLSanitizerPolicy}
 	retroService := &retro.Service{DB: d.DB, Logger: logger, AESHashKey: d.Config.AESHashkey}
@@ -261,7 +347,7 @@ func main() {
 		},
 	}, uiFilesystem, uiHTTPFilesystem)
 
-	err := h.ListenAndServe()
+	err = h.ListenAndServe()
 	if err != nil {
 		logger.Fatal(err.Error())
 	}

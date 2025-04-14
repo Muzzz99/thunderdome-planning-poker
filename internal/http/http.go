@@ -20,6 +20,7 @@ import (
 	"github.com/StevenWeathers/thunderdome-planning-poker/internal/http/storyboard"
 
 	"github.com/StevenWeathers/thunderdome-planning-poker/docs/swagger"
+	"github.com/StevenWeathers/thunderdome-planning-poker/internal/http/ai"
 	"github.com/StevenWeathers/thunderdome-planning-poker/internal/http/checkin"
 	"github.com/StevenWeathers/thunderdome-planning-poker/internal/http/poker"
 	"github.com/StevenWeathers/thunderdome-planning-poker/internal/http/retro"
@@ -135,6 +136,12 @@ func New(apiService Service, FSS fs.FS, HFS http.FileSystem) *Service {
 	orgRouter := apiRouter.PathPrefix("/organizations").Subrouter()
 	teamRouter := apiRouter.PathPrefix("/teams").Subrouter()
 	adminRouter := apiRouter.PathPrefix("/admin").Subrouter()
+
+	// 初始化AI服务
+	aiSvc := ai.NewAIService()
+
+	// 注册AI API路由
+	apiRouter.HandleFunc("/ai/suggest-points", aiSvc.SuggestPoints).Methods("POST")
 
 	apiRouter.HandleFunc("/", a.handleApiIndex()).Methods("GET")
 

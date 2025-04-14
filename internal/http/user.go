@@ -314,13 +314,25 @@ func (s *Service) handleUserAvatar() http.HandlerFunc {
 		ctx := r.Context()
 		sessionUserID, _ := ctx.Value(contextKeyUserID).(*string)
 
+		// 记录请求信息
+		s.Logger.Ctx(ctx).Info("Avatar request received",
+			zap.String("avatar_service", s.Config.AvatarService),
+			zap.String("path", r.URL.Path),
+			zap.Any("vars", vars))
+
 		width, _ := strconv.Atoi(vars["width"])
+		if width <= 0 {
+			width = 48 // 默认宽度
+		}
+
 		userID := vars["id"]
 		idErr := validate.Var(userID, "required,uuid")
 		if idErr != nil {
+			s.Logger.Ctx(ctx).Error("Invalid user ID", zap.Error(idErr), zap.String("user_id", userID))
 			s.Failure(w, r, http.StatusBadRequest, Errorf(EINVALID, idErr.Error()))
 			return
 		}
+
 		avatarGender := govatar.MALE
 		userGender, ok := vars["avatar"]
 		if ok {
@@ -330,33 +342,57 @@ func (s *Service) handleUserAvatar() http.HandlerFunc {
 		}
 
 		var avatar image.Image
-		if s.Config.AvatarService == "govatar" {
-			avatar, _ = govatar.GenerateForUsername(avatarGender, userID)
-		} else { // must be goadorable
-			var err error
+		var err error
+
+		// 根据配置的头像服务生成头像
+		switch s.Config.AvatarService {
+		case "govatar":
+			avatar, err = govatar.GenerateForUsername(avatarGender, userID)
+			if err != nil {
+				s.Logger.Ctx(ctx).Error("Failed to generate govatar", zap.Error(err), zap.String("user_id", userID))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		case "goadorable":
 			avatar, _, err = image.Decode(bytes.NewReader(adorable.PseudoRandom([]byte(userID))))
 			if err != nil {
-				s.Logger.Ctx(ctx).Error(err.Error())
+				s.Logger.Ctx(ctx).Error("Failed to generate goadorable avatar", zap.Error(err), zap.String("user_id", userID))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		default:
+			// 如果配置了其他服务但请求到了这个处理程序，使用goadorable作为后备
+			s.Logger.Ctx(ctx).Warn("Using fallback avatar service",
+				zap.String("configured_service", s.Config.AvatarService),
+				zap.String("fallback_service", "goadorable"))
+			avatar, _, err = image.Decode(bytes.NewReader(adorable.PseudoRandom([]byte(userID))))
+			if err != nil {
+				s.Logger.Ctx(ctx).Error("Failed to generate fallback avatar", zap.Error(err), zap.String("user_id", userID))
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 		}
 
+		// 调整头像大小
 		img := transform.Resize(avatar, width, width, transform.Linear)
 		buffer := new(bytes.Buffer)
 
+		// 编码为PNG
 		if err := png.Encode(buffer, img); err != nil {
-			s.Logger.Ctx(ctx).Error("handleUserAvatar error", zap.Error(err), zap.String("entity_user_id", userID),
+			s.Logger.Ctx(ctx).Error("Failed to encode avatar as PNG", zap.Error(err), zap.String("entity_user_id", userID),
 				zap.Stringp("session_user_id", sessionUserID))
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
+		// 设置响应头
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Content-Length", strconv.Itoa(len(buffer.Bytes())))
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 缓存一天
 
+		// 写入响应
 		if _, err := w.Write(buffer.Bytes()); err != nil {
-			s.Logger.Ctx(ctx).Error("handleUserAvatar error", zap.Error(err), zap.String("entity_user_id", userID),
+			s.Logger.Ctx(ctx).Error("Failed to write avatar response", zap.Error(err), zap.String("entity_user_id", userID),
 				zap.Stringp("session_user_id", sessionUserID))
 			w.WriteHeader(http.StatusInternalServerError)
 			return
