@@ -32,6 +32,11 @@ services:
       REDIS_POOL_SIZE: 20
       REDIS_MIN_IDLE_CONNS: 10
       REDIS_MAX_RETRIES: 3
+      # AI功能配置 - 使用Hugging Face免费API
+      CONFIG_AI_ENABLED: "true"
+      THUNDERDOME_AI_API_URL: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+      THUNDERDOME_AI_API_KEY: "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" # 请替换为您的Hugging Face令牌
+      THUNDERDOME_AI_MODEL: "mistral"
     volumes:
       - ./etc:/etc/thunderdome
   db:

@@ -583,6 +583,7 @@
         notifications="{notifications}"
         xfetch="{xfetch}"
         gameId="{pokerGame.id}"
+        pointValues="{points}"
       />
     </div>
 
