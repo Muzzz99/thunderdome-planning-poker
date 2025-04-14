@@ -35,7 +35,7 @@ services:
       # AI功能配置 - 使用Hugging Face免费API
       CONFIG_AI_ENABLED: "true"
       THUNDERDOME_AI_API_URL: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-      THUNDERDOME_AI_API_KEY: "YOUR_API_KEY_HERE" # 请替换为您的Hugging Face令牌
+      THUNDERDOME_AI_API_KEY: "REPLACE_WITH_YOUR_API_KEY" # 请替换为您的Hugging Face令牌
       THUNDERDOME_AI_MODEL: "mistral"
     volumes:
       - ./etc:/etc/thunderdome
