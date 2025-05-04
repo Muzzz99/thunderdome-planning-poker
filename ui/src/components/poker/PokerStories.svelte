@@ -4,11 +4,13 @@
   import LL from '../../i18n/i18n-svelte';
   import {
     Ban,
+    Brain,
     ChevronDown,
     ChevronsDown,
     ChevronsUp,
     ChevronUp,
     ExternalLink,
+    Eye,
   } from 'lucide-svelte';
   import Bars2 from '../icons/Bars2.svelte';
   import AddPlan from './AddStory.svelte';
@@ -22,6 +24,7 @@
   export let notifications;
   export let xfetch;
   export let gameId = '';
+  export let pointValues = ['1', '2', '3', '5', '8', '13', '?'];
 
   let defaultPlan = {
     id: '',
@@ -70,6 +73,7 @@
   let selectedPlan = { ...defaultPlan };
   let storysShow = 'unpointed';
   let showImport = false;
+  let showAiSuggestion = false;
 
   const toggleImport = () => {
     showImport = !showImport;
@@ -88,17 +92,20 @@
     showAddPlan = !showAddPlan;
   };
 
-  const togglePlanView = planId => () => {
-    if (planId) {
-      selectedPlan = plans.find(p => p.id === planId);
-      eventTag('plan_show_view', 'battle', ``);
-    } else {
-      selectedPlan = { ...defaultPlan };
-
-      eventTag('plan_unshow_view', 'battle', ``);
-    }
-    showViewPlan = !showViewPlan;
-  };
+  const togglePlanView =
+    (planId, showAi = false) =>
+    () => {
+      if (planId) {
+        selectedPlan = plans.find(p => p.id === planId);
+        showAiSuggestion = showAi;
+        eventTag('plan_show_view', 'battle', ``);
+      } else {
+        selectedPlan = { ...defaultPlan };
+        showAiSuggestion = false;
+        eventTag('plan_unshow_view', 'battle', ``);
+      }
+      showViewPlan = !showViewPlan;
+    };
 
   const handlePlanAdd = newPlan => {
     sendSocketEvent('add_plan', JSON.stringify(newPlan));
@@ -291,13 +298,26 @@
               {plan.points}
             </div>
           {/if}
-          <HollowButton
-            color="blue"
-            onClick="{togglePlanView(plan.id)}"
-            testid="plan-view"
+          <div
+            class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center"
           >
-            {$LL.view()}
-          </HollowButton>
+            <button
+              class="rounded text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 bg-white dark:bg-transparent p-1 mx-1"
+              on:click="{togglePlanView(plan.id)}"
+              title="{$LL.planView()}"
+            >
+              <Eye class="w-5 h-5" />
+            </button>
+            {#if !plan.active && !plan.points}
+              <button
+                class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
+                on:click="{togglePlanView(plan.id, true)}"
+                title="查看并使用AI建议"
+              >
+                <Brain class="w-5 h-5" />
+              </button>
+            {/if}
+          </div>
           {#if isLeader}
             {#if !plan.active}
               <HollowButton
@@ -368,13 +388,26 @@
                 {plan.points}
               </div>
             {/if}
-            <HollowButton
-              color="blue"
-              onClick="{togglePlanView(plan.id)}"
-              testid="plan-view"
+            <div
+              class="w-1/3 flex flex-wrap content-center justify-center lg:justify-end items-center"
             >
-              {$LL.view()}
-            </HollowButton>
+              <button
+                class="rounded text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 bg-white dark:bg-transparent p-1 mx-1"
+                on:click="{togglePlanView(plan.id)}"
+                title="{$LL.planView()}"
+              >
+                <Eye class="w-5 h-5" />
+              </button>
+              {#if !plan.active && !plan.points}
+                <button
+                  class="rounded text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 bg-white dark:bg-transparent p-1 mx-1"
+                  on:click="{togglePlanView(plan.id, true)}"
+                  title="查看并使用AI建议"
+                >
+                  <Brain class="w-5 h-5" />
+                </button>
+              {/if}
+            </div>
             {#if isLeader}
               {#if !plan.active}
                 <HollowButton
@@ -454,6 +487,8 @@
     description="{selectedPlan.description}"
     acceptanceCriteria="{selectedPlan.acceptanceCriteria}"
     priority="{selectedPlan.priority}"
+    pointValues="{pointValues}"
+    showAiSuggestion="{showAiSuggestion}"
   />
 {/if}
 

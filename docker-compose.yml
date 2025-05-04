@@ -9,9 +9,13 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     links:
       - db
+      - redis
     networks:
       - asgard
     environment:
@@ -23,6 +27,16 @@ services:
       DB_NAME: thunderdome
       DB_USER: thor
       DB_PASS: odinson
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_POOL_SIZE: 20
+      REDIS_MIN_IDLE_CONNS: 10
+      REDIS_MAX_RETRIES: 3
+      # AI功能配置 - 使用Hugging Face免费API
+      CONFIG_AI_ENABLED: "true"
+      THUNDERDOME_AI_API_URL: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+      THUNDERDOME_AI_API_KEY: "replace-your-key" # 请替换为您的Hugging Face令牌
+      THUNDERDOME_AI_MODEL: "mistral"
     volumes:
       - ./etc:/etc/thunderdome
   db:
@@ -38,6 +52,28 @@ services:
       - thunderdome_data:/var/lib/postgresql/data
     networks:
       - asgard
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thor -d thunderdome"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    networks:
+      - asgard
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
   mail:
     image: maildev/maildev:2.1.0
     restart: always
@@ -52,3 +88,4 @@ networks:
 
 volumes:
   thunderdome_data:
+  redis_data:

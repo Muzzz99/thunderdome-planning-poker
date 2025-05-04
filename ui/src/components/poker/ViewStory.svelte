@@ -10,6 +10,7 @@
     ExternalLink,
   } from 'lucide-svelte';
   import Bars2 from '../icons/Bars2.svelte';
+  import AiPointSuggestion from './AiPointSuggestion.svelte';
 
   export let togglePlanView = () => {};
 
@@ -20,6 +21,8 @@
   export let description = '';
   export let acceptanceCriteria = '';
   export let priority = 99;
+  export let pointValues = ['1', '2', '3', '5', '8', '13', '?'];
+  export let showAiSuggestion = false;
 
   const priorities = {
     99: {
@@ -110,4 +113,13 @@
       {@html acceptanceCriteria}
     </div>
   </div>
+
+  {#if showAiSuggestion}
+    <AiPointSuggestion
+      description="{description}"
+      acceptanceCriteria="{acceptanceCriteria}"
+      storyName="{planName}"
+      points="{pointValues}"
+    />
+  {/if}
 </Modal>
